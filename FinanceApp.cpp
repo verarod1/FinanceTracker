@@ -47,6 +47,7 @@ FinanceApp::FinanceApp(QWidget* parent) : QMainWindow(parent) {
     table->setSelectionBehavior(QAbstractItemView::SelectRows);
     table->setSelectionMode(QAbstractItemView::SingleSelection);
     table->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
+    table->setEditTriggers(QAbstractItemView::NoEditTriggers);
 
     addButton = new QPushButton("Добавить запись", this);
     deleteButton = new QPushButton("Удалить выбранное", this);
