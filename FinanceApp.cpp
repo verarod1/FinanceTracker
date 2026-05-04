@@ -7,7 +7,9 @@
 #include <QDialog>
 #include <QListWidget>
 #include <QDialogButtonBox>
+#include <QGridLayout>
 #include <set>
+#include <algorithm>
 
 FinanceApp::FinanceApp(QWidget* parent) : QMainWindow(parent) {
     setWindowTitle("Finance Tracker");
@@ -26,10 +28,12 @@ FinanceApp::FinanceApp(QWidget* parent) : QMainWindow(parent) {
     monthNameLabel = new QLabel("", this);
     monthNameLabel->setAlignment(Qt::AlignCenter);
     monthNameLabel->setStyleSheet("font-weight: bold; font-size: 16px;");
+    analyticsButton = new QPushButton("Аналитика", this);
 
     navLayout->addWidget(prevMonthButton);
     navLayout->addWidget(monthNameLabel);
     navLayout->addWidget(nextMonthButton);
+    navLayout->addWidget(analyticsButton);
 
     inputLayout = new QHBoxLayout();
     amountEdit = new QLineEdit(this);
@@ -74,6 +78,7 @@ FinanceApp::FinanceApp(QWidget* parent) : QMainWindow(parent) {
     connect(typeBox, &QComboBox::currentTextChanged, this, &FinanceApp::onTypeChanged);
     connect(prevMonthButton, &QPushButton::clicked, this, &FinanceApp::onPrevMonthClicked);
     connect(nextMonthButton, &QPushButton::clicked, this, &FinanceApp::onNextMonthClicked);
+    connect(analyticsButton, &QPushButton::clicked, this, &FinanceApp::onYearlyAnalyticsClicked);
 
     connect(amountEdit, &QLineEdit::returnPressed, this, &FinanceApp::onAddButtonClicked);
     connect(dateEdit, &QLineEdit::returnPressed, this, &FinanceApp::onAddButtonClicked);
@@ -346,4 +351,161 @@ void FinanceApp::onTypeChanged(const QString& text) {
     categoryBox->clear();
     if (text == "Доход") categoryBox->addItems({ "Зарплата", "Стипендия", "Подарок", "Другое" });
     else categoryBox->addItems({ "Еда", "Транспорт", "Жилье", "Обязательства", "Развлечения", "Бытовые", "Здоровье", "Другое" });
+}
+
+void FinanceApp::onYearlyAnalyticsClicked() {
+    QDialog dialog(this);
+    dialog.setWindowTitle("Аналитика за год");
+    dialog.resize(900, 600);
+    dialog.setStyleSheet("QToolTip { color: #000000; background-color: #ffffff; border: 1px solid #767676; }");
+
+    QVBoxLayout mainLayout(&dialog);
+    QHBoxLayout chartLayout;
+
+    std::vector<Transaction> history = manager.getTransactions();
+    double maxVal = 0;
+    double incMonth[13] = { 0 };
+    double expMonth[13] = { 0 };
+    std::map<std::string, double> incMonthCat[13];
+    std::map<std::string, double> expMonthCat[13];
+    std::set<std::string> incCats;
+    std::set<std::string> expCats;
+
+    for (int i = 0; i < history.size(); i++) {
+        if (history[i].date.length() >= 5) {
+            int m = std::stoi(history[i].date.substr(3, 2));
+            if (m >= 1 && m <= 12) {
+                if (history[i].isIncome) {
+                    incMonth[m] += history[i].amount;
+                    incMonthCat[m][history[i].category] += history[i].amount;
+                    incCats.insert(history[i].category);
+                }
+                else {
+                    expMonth[m] += history[i].amount;
+                    expMonthCat[m][history[i].category] += history[i].amount;
+                    expCats.insert(history[i].category);
+                }
+            }
+        }
+    }
+
+    for (int i = 1; i <= 12; i++) {
+        if (incMonth[i] > maxVal) maxVal = incMonth[i];
+        if (expMonth[i] > maxVal) maxVal = expMonth[i];
+    }
+    if (maxVal == 0) maxVal = 1;
+
+    QStringList mNames = { "", "Янв", "Фев", "Мар", "Апр", "Май", "Июн", "Июл", "Авг", "Сен", "Окт", "Ноя", "Дек" };
+
+    std::map<std::string, QString> catColors;
+    QStringList palette = { "#55aaff", "#55ff7f", "#ff557f", "#ffff7f", "#aaffff", "#ffaa7f", "#aa55ff", "#e1e1e1", "#ffa500", "#ff00ff", "#00ffff", "#f08080" };
+    int colorIdx = 0;
+
+    for (const std::string& cat : incCats) {
+        catColors[cat] = palette[colorIdx % palette.size()];
+        colorIdx++;
+    }
+    for (const std::string& cat : expCats) {
+        catColors[cat] = palette[colorIdx % palette.size()];
+        colorIdx++;
+    }
+
+    for (int i = 1; i <= 12; i++) {
+        QVBoxLayout* monthLayout = new QVBoxLayout();
+        QHBoxLayout* barsLayout = new QHBoxLayout();
+
+        auto makeBar = [&](double total, std::map<std::string, double>& cats) {
+            QWidget* container = new QWidget();
+            container->setFixedWidth(25);
+            container->setStyleSheet("background: #2b2b2b; border: 1px solid #1e1e1e;");
+            QVBoxLayout* layout = new QVBoxLayout(container);
+            layout->setContentsMargins(0, 0, 0, 0);
+            layout->setSpacing(0);
+
+            double emptySpace = maxVal - total;
+            if (emptySpace > 0) {
+                QWidget* spacer = new QWidget();
+                spacer->setStyleSheet("background: transparent; border: none;");
+                layout->addWidget(spacer, static_cast<int>(emptySpace * 100));
+            }
+
+            for (auto const& p : cats) {
+                QWidget* chunk = new QWidget();
+                chunk->setStyleSheet("background-color: " + catColors[p.first] + "; border: none;");
+                chunk->setToolTip(QString::fromUtf8(p.first.c_str()) + ": " + QString::number(p.second));
+                layout->addWidget(chunk, static_cast<int>(p.second * 100));
+            }
+            return container;
+            };
+
+        barsLayout->addWidget(makeBar(incMonth[i], incMonthCat[i]));
+        barsLayout->addWidget(makeBar(expMonth[i], expMonthCat[i]));
+
+        QLabel* lbl = new QLabel(mNames[i]);
+        lbl->setAlignment(Qt::AlignCenter);
+
+        monthLayout->addLayout(barsLayout);
+        monthLayout->addWidget(lbl);
+        chartLayout.addLayout(monthLayout);
+    }
+
+    mainLayout.addLayout(&chartLayout);
+
+    QHBoxLayout* legendMainLayout = new QHBoxLayout();
+    legendMainLayout->addStretch();
+
+    if (!incCats.empty()) {
+        QVBoxLayout* incBox = new QVBoxLayout();
+        incBox->setSpacing(2);
+        QLabel* incLbl = new QLabel("<b>Доходы</b>");
+        incLbl->setAlignment(Qt::AlignLeft);
+        incBox->addWidget(incLbl);
+
+        for (const std::string& cat : incCats) {
+            QHBoxLayout* itemL = new QHBoxLayout();
+            itemL->setContentsMargins(0, 0, 0, 0);
+            itemL->setSpacing(5);
+            QLabel* clr = new QLabel("■");
+            clr->setStyleSheet("color: " + catColors[cat] + "; font-size: 16px;");
+            QLabel* txt = new QLabel(QString::fromUtf8(cat.c_str()));
+            itemL->addWidget(clr);
+            itemL->addWidget(txt);
+            itemL->addStretch();
+            incBox->addLayout(itemL);
+        }
+        incBox->addStretch();
+        legendMainLayout->addLayout(incBox);
+    }
+
+    if (!incCats.empty() && !expCats.empty()) {
+        legendMainLayout->addSpacing(50);
+    }
+
+    if (!expCats.empty()) {
+        QVBoxLayout* expBox = new QVBoxLayout();
+        expBox->setSpacing(2);
+        QLabel* expLbl = new QLabel("<b>Расходы</b>");
+        expLbl->setAlignment(Qt::AlignLeft);
+        expBox->addWidget(expLbl);
+
+        for (const std::string& cat : expCats) {
+            QHBoxLayout* itemL = new QHBoxLayout();
+            itemL->setContentsMargins(0, 0, 0, 0);
+            itemL->setSpacing(5);
+            QLabel* clr = new QLabel("■");
+            clr->setStyleSheet("color: " + catColors[cat] + "; font-size: 16px;");
+            QLabel* txt = new QLabel(QString::fromUtf8(cat.c_str()));
+            itemL->addWidget(clr);
+            itemL->addWidget(txt);
+            itemL->addStretch();
+            expBox->addLayout(itemL);
+        }
+        expBox->addStretch();
+        legendMainLayout->addLayout(expBox);
+    }
+
+    legendMainLayout->addStretch();
+    mainLayout.addLayout(legendMainLayout);
+
+    dialog.exec();
 }

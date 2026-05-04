@@ -28,6 +28,7 @@ private slots:
     void onPrevMonthClicked();
     void onNextMonthClicked();
     void onHeaderClicked(int logicalIndex);
+    void onYearlyAnalyticsClicked();
 
 private:
     FinanceManager manager;
@@ -45,6 +46,7 @@ private:
     QLabel* monthNameLabel;
     QPushButton* prevMonthButton;
     QPushButton* nextMonthButton;
+    QPushButton* analyticsButton;
 
     QLineEdit* amountEdit;
     QComboBox* typeBox;
