@@ -11,6 +11,7 @@
 #include <QComboBox>
 #include <QLabel>
 #include <QProgressBar>
+#include <QStringList>
 #include "FinanceManager.h"
 
 class FinanceApp : public QMainWindow {
@@ -26,10 +27,15 @@ private slots:
     void onDeleteButtonClicked();
     void onPrevMonthClicked();
     void onNextMonthClicked();
+    void onHeaderClicked(int logicalIndex);
 
 private:
     FinanceManager manager;
     int currentMonth;
+
+    QStringList typeFilters;
+    QStringList categoryFilters;
+    QStringList dateFilters;
 
     QWidget* centralWidget;
     QVBoxLayout* mainLayout;

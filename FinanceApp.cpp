@@ -4,6 +4,10 @@
 #include <QString>
 #include <QMessageBox>
 #include <QDate>
+#include <QDialog>
+#include <QListWidget>
+#include <QDialogButtonBox>
+#include <set>
 
 FinanceApp::FinanceApp(QWidget* parent) : QMainWindow(parent) {
     setWindowTitle("Finance Tracker");
@@ -43,11 +47,12 @@ FinanceApp::FinanceApp(QWidget* parent) : QMainWindow(parent) {
     inputLayout->addWidget(dateEdit);
 
     table = new QTableWidget(0, 4, this);
-    table->setHorizontalHeaderLabels({ "Сумма", "Тип", "Категория", "Дата" });
+    table->setHorizontalHeaderLabels({ "Сумма", "Тип ▼", "Категория ▼", "Дата ▼" });
     table->setSelectionBehavior(QAbstractItemView::SelectRows);
     table->setSelectionMode(QAbstractItemView::SingleSelection);
     table->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
     table->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    table->horizontalHeader()->setSectionsClickable(true);
 
     addButton = new QPushButton("Добавить запись", this);
     deleteButton = new QPushButton("Удалить выбранное", this);
@@ -73,6 +78,8 @@ FinanceApp::FinanceApp(QWidget* parent) : QMainWindow(parent) {
     connect(amountEdit, &QLineEdit::returnPressed, this, &FinanceApp::onAddButtonClicked);
     connect(dateEdit, &QLineEdit::returnPressed, this, &FinanceApp::onAddButtonClicked);
 
+    connect(table->horizontalHeader(), &QHeaderView::sectionClicked, this, &FinanceApp::onHeaderClicked);
+
     manager.loadFromFile();
     refreshDisplay();
 }
@@ -93,34 +100,158 @@ void FinanceApp::refreshDisplay() {
         int tMonth = std::stoi(history[i].date.substr(3, 2));
 
         if (tMonth == currentMonth) {
+            QString tType = history[i].isIncome ? "Доход" : "Расход";
+            QString tCat = QString::fromUtf8(history[i].category.c_str());
+            QString tDate = QString::fromUtf8(history[i].date.c_str());
+
+            if (!typeFilters.isEmpty() && !typeFilters.contains(tType)) continue;
+            if (!categoryFilters.isEmpty() && !categoryFilters.contains(tCat)) continue;
+            if (!dateFilters.isEmpty() && !dateFilters.contains(tDate)) continue;
+
             int row = table->rowCount();
             table->insertRow(row);
-
             table->setItem(row, 0, new QTableWidgetItem(QString::number(history[i].amount)));
-            table->setItem(row, 1, new QTableWidgetItem(history[i].isIncome ? "Доход" : "Расход"));
-            table->setItem(row, 2, new QTableWidgetItem(QString::fromUtf8(history[i].category.c_str())));
-            table->setItem(row, 3, new QTableWidgetItem(QString::fromUtf8(history[i].date.c_str())));
+            table->setItem(row, 1, new QTableWidgetItem(tType));
+            table->setItem(row, 2, new QTableWidgetItem(tCat));
+            table->setItem(row, 3, new QTableWidgetItem(tDate));
         }
     }
 
     updateSummary();
 }
 
+void FinanceApp::onHeaderClicked(int logicalIndex) {
+    if (logicalIndex == 0) return;
+
+    std::set<QString> uniqueVals;
+    std::vector<Transaction> history = manager.getTransactions();
+
+    for (int i = 0; i < history.size(); i++) {
+        if (history[i].date.length() < 5) continue;
+        int tMonth = std::stoi(history[i].date.substr(3, 2));
+
+        if (tMonth == currentMonth) {
+            QString tType = history[i].isIncome ? "Доход" : "Расход";
+            QString tCat = QString::fromUtf8(history[i].category.c_str());
+            QString tDate = QString::fromUtf8(history[i].date.c_str());
+
+            if (logicalIndex != 1 && !typeFilters.isEmpty() && !typeFilters.contains(tType)) continue;
+            if (logicalIndex != 2 && !categoryFilters.isEmpty() && !categoryFilters.contains(tCat)) continue;
+            if (logicalIndex != 3 && !dateFilters.isEmpty() && !dateFilters.contains(tDate)) continue;
+
+            if (logicalIndex == 1) uniqueVals.insert(tType);
+            else if (logicalIndex == 2) uniqueVals.insert(tCat);
+            else if (logicalIndex == 3) uniqueVals.insert(tDate);
+        }
+    }
+
+    if (uniqueVals.empty()) return;
+
+    QDialog dialog(this);
+    dialog.setWindowTitle("Фильтр");
+    dialog.resize(250, 300);
+    QVBoxLayout layout(&dialog);
+    QListWidget list;
+
+    QStringList* currentFilter = nullptr;
+    if (logicalIndex == 1) currentFilter = &typeFilters;
+    else if (logicalIndex == 2) currentFilter = &categoryFilters;
+    else if (logicalIndex == 3) currentFilter = &dateFilters;
+
+    for (const QString& val : uniqueVals) {
+        QListWidgetItem* item = new QListWidgetItem(val, &list);
+        item->setFlags(item->flags() | Qt::ItemIsUserCheckable);
+        if (currentFilter->isEmpty() || currentFilter->contains(val)) {
+            item->setCheckState(Qt::Checked);
+        }
+        else {
+            item->setCheckState(Qt::Unchecked);
+        }
+    }
+
+    layout.addWidget(&list);
+    QDialogButtonBox buttons(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
+    layout.addWidget(&buttons);
+
+    connect(&buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+    connect(&buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+
+    if (dialog.exec() == QDialog::Accepted) {
+        currentFilter->clear();
+        bool allChecked = true;
+        bool hasChecked = false;
+
+        for (int i = 0; i < list.count(); i++) {
+            if (list.item(i)->checkState() == Qt::Checked) {
+                currentFilter->append(list.item(i)->text());
+                hasChecked = true;
+            }
+            else {
+                allChecked = false;
+            }
+        }
+
+        if (allChecked) {
+            currentFilter->clear();
+        }
+        else if (!hasChecked) {
+            currentFilter->append("___EMPTY___");
+        }
+
+        refreshDisplay();
+    }
+}
+
 void FinanceApp::onPrevMonthClicked() {
     currentMonth--;
     if (currentMonth < 1) currentMonth = 12;
+    typeFilters.clear();
+    categoryFilters.clear();
+    dateFilters.clear();
     refreshDisplay();
 }
 
 void FinanceApp::onNextMonthClicked() {
     currentMonth++;
     if (currentMonth > 12) currentMonth = 1;
+    typeFilters.clear();
+    categoryFilters.clear();
+    dateFilters.clear();
     refreshDisplay();
 }
 
 void FinanceApp::updateSummary() {
-    double inc = manager.getTotalIncome(currentMonth);
-    double exp = manager.getTotalExpense(currentMonth);
+    double inc = 0.0;
+    double exp = 0.0;
+    std::map<std::string, double> incData;
+    std::map<std::string, double> expData;
+
+    std::vector<Transaction> history = manager.getTransactions();
+
+    for (int i = 0; i < history.size(); i++) {
+        if (history[i].date.length() < 5) continue;
+        int tMonth = std::stoi(history[i].date.substr(3, 2));
+
+        if (tMonth == currentMonth) {
+            QString tType = history[i].isIncome ? "Доход" : "Расход";
+            QString tCat = QString::fromUtf8(history[i].category.c_str());
+            QString tDate = QString::fromUtf8(history[i].date.c_str());
+
+            if (!typeFilters.isEmpty() && !typeFilters.contains(tType)) continue;
+            if (!categoryFilters.isEmpty() && !categoryFilters.contains(tCat)) continue;
+            if (!dateFilters.isEmpty() && !dateFilters.contains(tDate)) continue;
+
+            if (history[i].isIncome) {
+                inc += history[i].amount;
+                incData[history[i].category] += history[i].amount;
+            }
+            else {
+                exp += history[i].amount;
+                expData[history[i].category] += history[i].amount;
+            }
+        }
+    }
+
     double balance = inc - exp;
 
     summaryLabel->setText("Доходы: " + QString::number(inc) + " | Расходы: " + QString::number(exp) + " | Баланс: " + QString::number(balance));
@@ -133,7 +264,6 @@ void FinanceApp::updateSummary() {
     QStringList colors = { "#55aaff", "#55ff7f", "#ff557f", "#ffff7f", "#aaffff", "#ffaa7f", "#aa55ff", "#e1e1e1" };
     int cIdx = 0;
 
-    std::map<std::string, double> incData = manager.getIncomeByCategory(currentMonth);
     if (!incData.empty()) {
         statsLayout->addWidget(new QLabel("<b>Доходы за месяц:</b>"));
         for (auto const& p : incData) {
@@ -147,7 +277,6 @@ void FinanceApp::updateSummary() {
         }
     }
 
-    std::map<std::string, double> expData = manager.getExpensesByCategory(currentMonth);
     if (!expData.empty()) {
         statsLayout->addWidget(new QLabel("<b>Расходы за месяц:</b>"));
         for (auto const& p : expData) {
