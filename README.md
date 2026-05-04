@@ -21,4 +21,4 @@
 1. Склонируйте репозиторий на свой компьютер:
 
 ```bash
-git clone [https://github.com/verarod1/FinanceTracker.git](https://github.com/verarod1/FinanceTracker.git)
+git clone https://github.com/verarod1/FinanceTracker.git
